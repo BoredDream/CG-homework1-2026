@@ -1,76 +1,114 @@
-// g++ bezier_gl.cpp -o bezier_gl -lGL -lGLU -lglut   (Linux)
-// Windows 用 freeglut，链接 freeglut32.lib / freeglut.lib
+// Linux:   g++ -std=c++11 01.cpp -o bezier -lGL -lGLU -lglut
+// Windows: g++ -std=c++11 01.cpp -o bezier.exe -lfreeglut -lopengl32 -lglu32
 #include <GL/glut.h>
+
+#include <array>
 #include <cmath>
+#include <cstddef>
 
-struct Vec2 { float x, y; };
+namespace {
 
-Vec2 P[4] = { {100, 500}, {250, 100}, {550, 100}, {700, 500} };
-int  gDrag = -1;
+struct Vec2 {
+    float x;
+    float y;
+};
 
-// 三次贝塞尔求值，传入的是数组首地址，不是某个数
-Vec2 bezier3(const Vec2* p, float t) {
-    float u = 1.0f - t;
-    float b0 = u*u*u, b1 = 3*u*u*t, b2 = 3*u*t*t, b3 = t*t*t;
-    return { b0*p[0].x + b1*p[1].x + b2*p[2].x + b3*p[3].x,
-             b0*p[0].y + b1*p[1].y + b2*p[2].y + b3*p[3].y };
+constexpr int kWindowWidth = 800;
+constexpr int kWindowHeight = 600;
+constexpr int kSampleCount = 200;
+constexpr float kPickRadius = 15.0f;
+constexpr int kNoSelection = -1;
+
+std::array<Vec2, 4> controlPoints{{
+    {100.0f, 500.0f}, {250.0f, 100.0f},
+    {550.0f, 100.0f}, {700.0f, 500.0f}
+}};
+int draggedPoint = kNoSelection;
+
+Vec2 cubicBezier(const std::array<Vec2, 4>& points, float t) {
+    const float u = 1.0f - t;
+    const float b0 = u * u * u;
+    const float b1 = 3.0f * u * u * t;
+    const float b2 = 3.0f * u * t * t;
+    const float b3 = t * t * t;
+
+    return {
+        b0 * points[0].x + b1 * points[1].x + b2 * points[2].x + b3 * points[3].x,
+        b0 * points[0].y + b1 * points[1].y + b2 * points[2].y + b3 * points[3].y
+    };
 }
 
 void display() {
-    glClear(GL_COLOR_BUFFER_BIT);//清楚显示器缓存
+    glClear(GL_COLOR_BUFFER_BIT);
 
-    // 控制多边形
-    glColor3f(0.7f, 0.7f, 0.7f);//颜色？
-    glBegin(GL_LINE_STRIP);//三次线性
-    for (int i = 0; i < 4; ++i) glVertex2f(P[i].x, P[i].y);//定点切换到浮点数
-    glEnd();
-
-    // 贝塞尔曲线
-    glColor3f(0.0f, 0.0f, 0.0f);
-    glLineWidth(0.5f);
+    glColor3f(0.7f, 0.7f, 0.7f);
     glBegin(GL_LINE_STRIP);
-    const int N = 200;
-    for (int i = 0; i <= N; ++i)
-        { Vec2 v = bezier3(P, (float)i / N); glVertex2f(v.x, v.y); }
+    for (const auto& point : controlPoints) {
+        glVertex2f(point.x, point.y);
+    }
     glEnd();
-    glLineWidth(1.0f);
 
-    // 控制点
+    glColor3f(0.0f, 0.0f, 0.0f);
+    glBegin(GL_LINE_STRIP);
+    for (int i = 0; i <= kSampleCount; ++i) {
+        const float t = static_cast<float>(i) / kSampleCount;
+        const Vec2 point = cubicBezier(controlPoints, t);
+        glVertex2f(point.x, point.y);
+    }
+    glEnd();
+
     glColor3f(0.9f, 0.1f, 0.1f);
     glPointSize(9.0f);
     glBegin(GL_POINTS);
-    for (int i = 0; i < 4; ++i) glVertex2f(P[i].x, P[i].y);
+    for (const auto& point : controlPoints) {
+        glVertex2f(point.x, point.y);
+    }
     glEnd();
 
     glutSwapBuffers();
 }
 
-void mouse(int btn, int state, int x, int y) {
-    if (btn == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
-        for (int i = 0; i < 4; ++i)
-            if (std::hypot(P[i].x - x, P[i].y - y) < 15.0f) { gDrag = i; break; }
+void mouse(int button, int state, int x, int y) {
+    if (button != GLUT_LEFT_BUTTON) {
+        return;
+    }
+
+    if (state == GLUT_DOWN) {
+        for (std::size_t i = 0; i < controlPoints.size(); ++i) {
+            const auto& point = controlPoints[i];
+            if (std::hypot(point.x - x, point.y - y) < kPickRadius) {
+                draggedPoint = static_cast<int>(i);
+                break;
+            }
+        }
     } else if (state == GLUT_UP) {
-        gDrag = -1;
+        draggedPoint = kNoSelection;
     }
 }
 
 void motion(int x, int y) {
-    if (gDrag >= 0) {
-        P[gDrag] = { (float)x, (float)y };
-        glutPostRedisplay();
+    if (draggedPoint == kNoSelection) {
+        return;
     }
+
+    controlPoints[static_cast<std::size_t>(draggedPoint)] = {
+        static_cast<float>(x), static_cast<float>(y)
+    };
+    glutPostRedisplay();
 }
+
+} // namespace
 
 int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
-    glutInitWindowSize(800, 600);
+    glutInitWindowSize(kWindowWidth, kWindowHeight);
     glutCreateWindow("Cubic Bezier Curve");
 
-    glClearColor(1, 1, 1, 1);
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluOrtho2D(0, 800, 600, 0);   // y 轴向下，与鼠标坐标一致
+    gluOrtho2D(0, kWindowWidth, kWindowHeight, 0);
 
     glutDisplayFunc(display);
     glutMouseFunc(mouse);
